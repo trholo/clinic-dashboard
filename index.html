@@ -439,7 +439,7 @@ let EVAL_DRAFT = null;   // {branch, role, type, evaluator, date, items:{}, note
    - 그 외(구글 시트 미연결 + GitHub Pages 등): localStorage 폴백
      ※ localStorage는 "이 브라우저"에만 저장되며 다른 담당자와 공유되지 않습니다.
 ===================================================================== */
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwUvTttE8ClH6DTXnC3KZaGlnd29hIrAk3lFsyRT9hti3bYo36xjaejwam61XrWXRF0/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyO1gdJSpl9T-3ZEhEskeXmtET0-qwTfk7CS8WUIKosyl_3X5mMDy1draojJ4HYqFdA/exec';
 
 const STORAGE_MODE = APPS_SCRIPT_URL ? 'sheets'
   : (typeof window.storage !== 'undefined') ? 'claude' : 'local';
@@ -1360,11 +1360,12 @@ async function submitEval(){
     // 실패 시 SUMMARY를 원래대로 되돌리고, 입력했던 체크리스트 내용은 그대로 유지해 다시 시도할 수 있게 함
     if(prevBranchSummary){ SUMMARY[EVAL_DRAFT.branch] = prevBranchSummary; } else { delete SUMMARY[EVAL_DRAFT.branch]; }
     const detail = lastErr ? lastErr.message : '알 수 없는 오류';
-    toast('저장 중 문제가 발생했습니다 ('+detail+')', 20000);
+    console.error('평가 저장 실패 (기술적 원인):', detail); // 화면에는 사용자 친화적 메시지만 노출하고, 자세한 원인은 콘솔에만 남김
+    toast('저장에 실패했습니다. 잠시 후 다시 시도해 주세요.', 10000);
     if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = '평가 저장'; }
     const remainingEl = document.getElementById('eval-remaining');
     if(remainingEl){
-      remainingEl.innerHTML = `<span style="color:var(--red); font-weight:700;">저장 실패: ${escapeHtml(detail)} — 아래 내용은 그대로 남아있습니다. 다시 눌러 재시도하세요.</span>`;
+      remainingEl.innerHTML = `<span style="color:var(--red); font-weight:700;">저장에 실패했습니다 — 입력하신 내용은 그대로 남아있습니다. '평가 저장'을 다시 눌러주세요. 계속 안 되면 담당자에게 알려주세요.</span>`;
     }
   }
 }
@@ -1575,7 +1576,7 @@ function renderSettingsTab(){
     }else{
       btn.disabled = false; btn.textContent='전체 저장';
       slot.innerHTML = `<div class="dirty-banner"><span>저장에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해주세요.</span></div>`;
-      toast('저장 중 문제가 발생했습니다', 20000);
+      toast('저장 중 문제가 발생했습니다', 10000);
     }
   });
 
