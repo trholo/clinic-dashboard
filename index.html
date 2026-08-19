@@ -527,10 +527,21 @@ const STORAGE = STORAGE_MODE==='sheets' ? makeSheetsStorageShim(APPS_SCRIPT_URL)
 /* =====================================================================
    스토리지 헬퍼
 ===================================================================== */
+// 초기 로딩 체감 속도 개선용 캐시: 마지막으로 불러온 데이터를 이 브라우저에 저장해두고,
+// 다음 방문 때는 캐시를 먼저 보여준 뒤 최신 데이터로 조용히 갱신함 (구글 시트 백엔드의 응답 지연을 체감상 줄여줌)
+const PAGE_CACHE_PREFIX = 'clinicDashCache::';
+function readPageCache(key){
+  try{ const raw = localStorage.getItem(PAGE_CACHE_PREFIX+key); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+}
+function writePageCache(key, value){
+  try{ localStorage.setItem(PAGE_CACHE_PREFIX+key, JSON.stringify(value)); }catch(e){}
+}
+
 async function loadBranches(){
   try{
     const r = await STORAGE.get('config:branches', true);
     BRANCHES = JSON.parse(r.value);
+    writePageCache('config:branches', BRANCHES);
   }catch(e){
     BRANCHES = JSON.parse(JSON.stringify(DEFAULT_BRANCHES));
     try{ await STORAGE.set('config:branches', JSON.stringify(BRANCHES), true); }catch(e2){}
@@ -539,6 +550,7 @@ async function loadBranches(){
 async function saveBranches(){
   try{
     await STORAGE.set('config:branches', JSON.stringify(BRANCHES), true);
+    writePageCache('config:branches', BRANCHES);
     return true;
   }catch(e){ return false; }
 }
@@ -559,6 +571,7 @@ async function loadSummary(){
       }
     });
     SUMMARY = migrated;
+    writePageCache('summary:latest', SUMMARY);
   }catch(e){ SUMMARY = {}; }
 }
 async function saveSummary(){
@@ -1514,9 +1527,24 @@ function renderSettingsTab(){
    초기화
 ===================================================================== */
 async function init(){
-  await Promise.all([loadBranches(), loadSummary()]);
-  renderShell();
-  renderCurrentView();
+  // 캐시된 데이터가 있으면 먼저 화면을 그려서 체감 로딩 속도를 개선하고,
+  // 최신 데이터는 뒤에서 이어서 불러와 조용히 갱신함 (구글 시트 백엔드는 응답에 시간이 걸릴 수 있음)
+  const cachedBranches = readPageCache('config:branches');
+  const cachedSummary = readPageCache('summary:latest');
+  if(cachedBranches && cachedSummary){
+    BRANCHES = cachedBranches;
+    SUMMARY = cachedSummary;
+    renderShell();
+    renderCurrentView();
+    Promise.all([loadBranches(), loadSummary()]).then(()=>{
+      renderShell();
+      renderCurrentView();
+    });
+  }else{
+    await Promise.all([loadBranches(), loadSummary()]);
+    renderShell();
+    renderCurrentView();
+  }
 }
 init();
 </script>
