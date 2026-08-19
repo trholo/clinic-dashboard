@@ -428,6 +428,7 @@ let BRANCHES = [];      // [{name, manager, type}]
 let SUMMARY = {};        // {branchName: {manager:{date,evaluator,type,score,count,failedLabels}|null, director:{...}|null}}
 let SETTINGS_DIRTY = false;
 let CURRENT_TAB = 'dashboard';
+let SETTINGS_SAVING = false;
 let EVAL_DRAFT = null;   // {branch, role, type, evaluator, date, items:{}, note}
 
 /* =====================================================================
@@ -700,6 +701,10 @@ function renderShell(){
   `;
   document.querySelectorAll('.tab-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
+      if(SETTINGS_SAVING){
+        alert('저장이 진행 중입니다. 완료될 때까지 잠시만 기다려주세요.');
+        return;
+      }
       if(SETTINGS_DIRTY && CURRENT_TAB==='settings'){
         if(!confirm('저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?')) return;
         SETTINGS_DIRTY = false;
@@ -1500,13 +1505,28 @@ function renderSettingsTab(){
 
   document.getElementById('s-save').addEventListener('click', async ()=>{
     const btn = document.getElementById('s-save');
-    btn.disabled = true; btn.textContent='저장 중…';
-    const ok = await saveBranches();
-    SETTINGS_DIRTY = false;
-    document.getElementById('settings-dirty-slot').innerHTML = '';
-    btn.textContent='전체 저장';
-    toast(ok? '지점 설정이 저장되었습니다' : '저장 중 문제가 발생했습니다');
-    renderSettingsTab();
+    const slot = document.getElementById('settings-dirty-slot');
+    SETTINGS_SAVING = true;
+    btn.disabled = true; btn.textContent='저장 중… (몇 초 걸릴 수 있어요)';
+    slot.innerHTML = `<div class="dirty-banner" style="background:#E7ECF5; color:var(--navy-mid); border-color:#C7D2E8;"><span>저장하는 중입니다. 완료될 때까지 기다려주세요…</span></div>`;
+    let ok = false;
+    try{
+      ok = await saveBranches();
+    }catch(err){
+      ok = false;
+      console.error('지점 설정 저장 실패', err);
+    }
+    SETTINGS_SAVING = false;
+    if(ok){
+      SETTINGS_DIRTY = false;
+      slot.innerHTML = '';
+      toast('지점 설정이 저장되었습니다');
+      renderSettingsTab();
+    }else{
+      btn.disabled = false; btn.textContent='전체 저장';
+      slot.innerHTML = `<div class="dirty-banner"><span>저장에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해주세요.</span></div>`;
+      toast('저장 중 문제가 발생했습니다');
+    }
   });
 
   function applyFilter(){
