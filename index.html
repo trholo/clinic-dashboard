@@ -250,6 +250,13 @@
 
   /* ---------- Settings table ---------- */
   .settings-note{font-size:12.5px; color:var(--ink-faint); padding:0 16px 12px;}
+  table.type-legend{border-collapse:collapse; font-size:12.5px; width:auto;}
+  table.type-legend th{text-align:left; font-weight:700; color:#fff; background:var(--navy-deep); padding:6px 14px; font-size:11px; letter-spacing:.3px;}
+  table.type-legend th:first-child{border-radius:6px 0 0 0;}
+  table.type-legend th:last-child{border-radius:0 6px 0 0;}
+  table.type-legend td{padding:6px 14px; border-bottom:1px solid var(--line); color:var(--ink-soft);}
+  table.type-legend tr:last-child td{border-bottom:none;}
+  table.type-legend td:first-child{font-weight:700; color:var(--ink); background:#F7F9FB;}
   .settings-note b{color:var(--ink-soft);}
   select.inline-select, input.inline-text{
     border:1px solid var(--line-strong); border-radius:6px; padding:6px 8px; font-size:13px; background:#fff; width:100%;
@@ -1338,6 +1345,15 @@ function renderSettingsTab(){
           </label>
         </div>
       </div>
+      <table class="type-legend" style="margin-top:14px;">
+        <thead><tr><th>유형</th><th>공간 / 인력</th></tr></thead>
+        <tbody>
+          <tr><td>유형 1</td><td>공간O / 인력O</td></tr>
+          <tr><td>유형 2</td><td>공간X / 인력O</td></tr>
+          <tr><td>유형 3</td><td>공간O / 인력X</td></tr>
+          <tr><td>유형 4</td><td>공간X / 인력X</td></tr>
+        </tbody>
+      </table>
       <div id="criteria-box" style="display:none; margin-top:12px; font-size:12.5px; color:var(--ink-soft); line-height:1.75; background:#F7F9FB; border-radius:8px; padding:14px 16px;">
         <div style="margin-bottom:10px;">
           <b style="color:var(--ink);">공간 O/X 기준</b> — "1일 클리닉 참석 인원 대비 60% 이상의 좌석이 있는가?"<br>
@@ -1377,10 +1393,10 @@ function renderSettingsTab(){
       <td>
         <select class="inline-select" data-field="type" data-branch="${escapeHtml(br.name)}">
           <option value="0" ${!br.type?'selected':''}>미지정</option>
-          <option value="1" ${br.type===1?'selected':''}>유형 1</option>
-          <option value="2" ${br.type===2?'selected':''}>유형 2</option>
-          <option value="3" ${br.type===3?'selected':''}>유형 3</option>
-          <option value="4" ${br.type===4?'selected':''}>유형 4</option>
+          <option value="1" ${br.type===1?'selected':''}>유형 1 (공간O·인력O)</option>
+          <option value="2" ${br.type===2?'selected':''}>유형 2 (공간X·인력O)</option>
+          <option value="3" ${br.type===3?'selected':''}>유형 3 (공간O·인력X)</option>
+          <option value="4" ${br.type===4?'selected':''}>유형 4 (공간X·인력X)</option>
         </select>
       </td>
     </tr>
