@@ -648,12 +648,15 @@ function stampHtml(score, size){
   const num = (score===null||score===undefined) ? '–' : (Math.round(score)+'%');
   return '<div class="stamp '+sizeClass+' tone-'+b.tone+'"><span class="stamp-num">'+num+'</span><span class="stamp-label">'+b.label+'</span></div>';
 }
-function toast(msg){
+function toast(msg, durationMs){
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
+  el.style.cursor = 'pointer';
+  el.title = '클릭하면 닫힙니다';
+  el.onclick = ()=>{ el.classList.remove('show'); clearTimeout(window.__toastTimer); };
   clearTimeout(window.__toastTimer);
-  window.__toastTimer = setTimeout(()=>el.classList.remove('show'), 2200);
+  window.__toastTimer = setTimeout(()=>el.classList.remove('show'), durationMs || 4000);
 }
 
 /* =====================================================================
@@ -1312,7 +1315,8 @@ async function submitEval(){
     passCount: pass, failCount: fail, naCount: na,
   };
 
-  // 요약(SUMMARY)을 먼저 갱신해두고, 이력 추가와 함께 한 번에 저장(구글 시트 백엔드는 batch로 왕복 1회에 처리)
+  // 요약(SUMMARY)을 미리 반영해두되(구글 시트 batch 저장에 필요), 실패 시 되돌릴 수 있도록 이전 값을 보관
+  const prevBranchSummary = SUMMARY[EVAL_DRAFT.branch] ? Object.assign({}, SUMMARY[EVAL_DRAFT.branch]) : null;
   if(!SUMMARY[EVAL_DRAFT.branch]) SUMMARY[EVAL_DRAFT.branch] = {manager:null, director:null};
   const prevCount = (SUMMARY[EVAL_DRAFT.branch][EVAL_DRAFT.role] && SUMMARY[EVAL_DRAFT.branch][EVAL_DRAFT.role].count) || 0;
   SUMMARY[EVAL_DRAFT.branch][EVAL_DRAFT.role] = {
@@ -1331,25 +1335,38 @@ async function submitEval(){
       ok = true;
     }catch(e){
       lastErr = e;
-      console.warn('일괄 저장(batch) 실패, 이전 방식으로 재시도합니다:', e.message);
-      // 연결된 구글 시트가 아직 최신 코드로 배포되지 않은 경우를 대비한 대체 경로 (batch 없이도 저장은 되도록)
-      try{
-        ok = await pushHistory(EVAL_DRAFT.branch, evalObj);
-        if(ok) await saveSummary();
-      }catch(e2){ lastErr = e2; ok = false; }
+      if(e.message === 'unknown_action'){
+        // 연결된 구글 시트가 batch 기능이 없는 이전 코드로 배포된 경우에만 예전 방식으로 재시도
+        console.warn('batch 액션을 지원하지 않는 백엔드입니다. 이전 방식으로 재시도합니다.');
+        try{
+          ok = await pushHistory(EVAL_DRAFT.branch, evalObj);
+          if(ok) await saveSummary();
+        }catch(e2){ lastErr = e2; ok = false; }
+      }else{
+        // 시간 초과 등 다른 오류는 다시 왕복하지 않고 바로 실패 처리 (대기 시간이 두 배가 되는 것을 방지)
+        ok = false;
+      }
     }
   }else{
     ok = await pushHistory(EVAL_DRAFT.branch, evalObj);
-    await saveSummary();
+    if(ok) await saveSummary();
   }
 
   if(ok){
     toast(EVAL_DRAFT.branch+' · '+ROLE_INFO[EVAL_DRAFT.role].label+'가 저장되었습니다');
+    EVAL_DRAFT = null;
+    renderShell(); CURRENT_TAB='dashboard'; renderShell(); renderCurrentView();
   }else{
-    toast('저장 중 문제가 발생했습니다'+(lastErr?' ('+lastErr.message+')':'')+'. 다시 시도해 주세요');
+    // 실패 시 SUMMARY를 원래대로 되돌리고, 입력했던 체크리스트 내용은 그대로 유지해 다시 시도할 수 있게 함
+    if(prevBranchSummary){ SUMMARY[EVAL_DRAFT.branch] = prevBranchSummary; } else { delete SUMMARY[EVAL_DRAFT.branch]; }
+    const detail = lastErr ? lastErr.message : '알 수 없는 오류';
+    toast('저장 중 문제가 발생했습니다 ('+detail+')', 20000);
+    if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = '평가 저장'; }
+    const remainingEl = document.getElementById('eval-remaining');
+    if(remainingEl){
+      remainingEl.innerHTML = `<span style="color:var(--red); font-weight:700;">저장 실패: ${escapeHtml(detail)} — 아래 내용은 그대로 남아있습니다. 다시 눌러 재시도하세요.</span>`;
+    }
   }
-  EVAL_DRAFT = null;
-  renderShell(); CURRENT_TAB='dashboard'; renderShell(); renderCurrentView();
 }
 
 /* =====================================================================
@@ -1558,7 +1575,7 @@ function renderSettingsTab(){
     }else{
       btn.disabled = false; btn.textContent='전체 저장';
       slot.innerHTML = `<div class="dirty-banner"><span>저장에 실패했습니다. 네트워크 상태를 확인하고 다시 시도해주세요.</span></div>`;
-      toast('저장 중 문제가 발생했습니다');
+      toast('저장 중 문제가 발생했습니다', 20000);
     }
   });
 
