@@ -476,19 +476,27 @@ function makeLocalStorageShim(){
 
 // 구글 시트(Apps Script 웹앱)를 백엔드로 쓰는 저장소 — 모든 사용자·모든 기기에서 공유됨
 function makeSheetsStorageShim(baseUrl){
+  // 요청이 무한정 멈춰 있지 않도록 제한 시간을 둠 — 시간 초과 시 명확한 오류로 실패 처리됨
+  function withTimeout(promise, ms, label){
+    let timer;
+    const timeout = new Promise((_, reject)=>{
+      timer = setTimeout(()=>reject(new Error((label||'요청')+' 시간 초과 ('+Math.round(ms/1000)+'초)')), ms);
+    });
+    return Promise.race([promise, timeout]).finally(()=>clearTimeout(timer));
+  }
   async function getReq(params){
     const qs = new URLSearchParams(params).toString();
-    const res = await fetch(baseUrl + '?' + qs, { method:'GET' });
+    const res = await withTimeout(fetch(baseUrl + '?' + qs, { method:'GET' }), 25000, 'GET');
     if(!res.ok) throw new Error('sheets GET failed: '+res.status);
     return res.json();
   }
   async function postReq(body){
     // Content-Type을 text/plain으로 보내야 CORS 프리플라이트를 피할 수 있음 (Apps Script는 preflight 미지원)
-    const res = await fetch(baseUrl, {
+    const res = await withTimeout(fetch(baseUrl, {
       method:'POST',
       headers: {'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify(body),
-    });
+    }), 25000, 'POST');
     if(!res.ok) throw new Error('sheets POST failed: '+res.status);
     return res.json();
   }
@@ -582,7 +590,9 @@ async function saveSummary(){
 async function loadHistory(branchName){
   try{
     const r = await STORAGE.get('eval:'+branchName, true);
-    return JSON.parse(r.value);
+    const hist = JSON.parse(r.value);
+    writePageCache('eval:'+branchName, hist);
+    return hist;
   }catch(e){ return []; }
 }
 async function pushHistory(branchName, evalObj){
@@ -911,11 +921,14 @@ function exportCsv(){
 let DETAIL_HIST = [];      // 현재 열린 상세보기의 전체 이력 (원장+담당자 통합, 최신순)
 let DETAIL_ROLE_FILTER = 'all';
 
+let DETAIL_BRANCH = null;   // 현재 열려 있는 상세보기의 지점명 (배경 갱신 시 여전히 같은 모달인지 확인용)
+
 async function openDetail(branchName){
   const br = getBranch(branchName);
   if(!br) return;
   const root = document.getElementById('modal-root');
   DETAIL_ROLE_FILTER = 'all';
+  DETAIL_BRANCH = branchName;
   root.innerHTML = `<div class="modal-backdrop" id="modal-backdrop">
     <div class="modal-panel">
       <div class="modal-head">
@@ -931,11 +944,23 @@ async function openDetail(branchName){
   document.getElementById('modal-close').addEventListener('click', closeDetail);
   document.getElementById('modal-backdrop').addEventListener('click', (e)=>{ if(e.target.id==='modal-backdrop') closeDetail(); });
 
+  // 캐시된 이력이 있으면 즉시 먼저 보여주고, 최신 데이터는 뒤에서 이어서 불러와 조용히 갱신
+  const cached = readPageCache('eval:'+branchName);
+  if(cached){
+    renderDetailBody(branchName, cached);
+  }
   const hist = await loadHistory(branchName);
+  if(DETAIL_BRANCH !== branchName) return; // 그 사이 모달을 닫았거나 다른 지점을 열었으면 반영하지 않음
+  renderDetailBody(branchName, hist);
+}
+
+function renderDetailBody(branchName, histRaw){
+  const br = getBranch(branchName);
   // 과거 데이터 호환: role 이 없는 옛 기록은 담당자 평가로 간주
-  hist.forEach(h=>{ if(!h.role) h.role='manager'; });
+  const hist = histRaw.map(h=> h.role ? h : Object.assign({}, h, {role:'manager'}));
   DETAIL_HIST = hist;
   const body = document.getElementById('modal-body');
+  if(!body) return; // 모달이 이미 닫힌 경우
   if(hist.length===0){
     body.innerHTML = `<div class="empty-state">
       ${stampHtml(null,'md')}
@@ -1062,7 +1087,7 @@ function sparklineSvg(entries){
     ${dots}
   </svg>`;
 }
-function closeDetail(){ document.getElementById('modal-root').innerHTML=''; }
+function closeDetail(){ DETAIL_BRANCH = null; document.getElementById('modal-root').innerHTML=''; }
 
 /* =====================================================================
    렌더: 지점 평가 입력
