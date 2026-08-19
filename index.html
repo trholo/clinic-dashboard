@@ -1570,6 +1570,31 @@ function renderSettingsTab(){
 /* =====================================================================
    초기화
 ===================================================================== */
+// 백그라운드 새로고침 전용: 전역 BRANCHES/SUMMARY를 직접 건드리지 않고 최신 데이터만 따로 가져옴
+// (loadBranches/loadSummary는 전역 상태를 즉시 덮어써버려서, 사용자가 편집 중일 때 쓰면 위험함)
+async function fetchFreshConfigAndSummary(){
+  const result = {branches:null, summary:null};
+  try{
+    const r = await STORAGE.get('config:branches', true);
+    result.branches = JSON.parse(r.value);
+  }catch(e){}
+  try{
+    const r = await STORAGE.get('summary:latest', true);
+    const raw = JSON.parse(r.value);
+    const migrated = {};
+    Object.keys(raw).forEach(k=>{
+      const v = raw[k];
+      if(v && (v.manager!==undefined || v.director!==undefined)){
+        migrated[k] = {manager: v.manager||null, director: v.director||null};
+      }else if(v){
+        migrated[k] = {manager: v, director: null};
+      }
+    });
+    result.summary = migrated;
+  }catch(e){}
+  return result;
+}
+
 async function init(){
   // 캐시된 데이터가 있으면 먼저 화면을 그려서 체감 로딩 속도를 개선하고,
   // 최신 데이터는 뒤에서 이어서 불러와 조용히 갱신함 (구글 시트 백엔드는 응답에 시간이 걸릴 수 있음)
@@ -1580,7 +1605,12 @@ async function init(){
     SUMMARY = cachedSummary;
     renderShell();
     renderCurrentView();
-    Promise.all([loadBranches(), loadSummary()]).then(()=>{
+    fetchFreshConfigAndSummary().then(fresh=>{
+      // 그 사이 사용자가 지점 설정을 편집·저장 중이거나 평가를 입력 중이면, 최신 데이터로 덮어써서
+      // 진행 중인 내용을 지워버리지 않도록 이번 갱신은 건너뜀 (다음 방문 때 자연히 최신화됨)
+      if(SETTINGS_DIRTY || SETTINGS_SAVING || EVAL_DRAFT) return;
+      if(fresh.branches){ BRANCHES = fresh.branches; writePageCache('config:branches', BRANCHES); }
+      if(fresh.summary){ SUMMARY = fresh.summary; writePageCache('summary:latest', SUMMARY); }
       renderShell();
       renderCurrentView();
     });
