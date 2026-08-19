@@ -1423,7 +1423,7 @@ function renderSettingsTab(){
         <input type="text" id="s-search" placeholder="지점명 검색" style="min-width:180px;">
         <select id="s-manager"><option value="">담당자 전체</option>${managers.map(m=>`<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}</select>
         <div class="spacer"></div>
-        <button class="btn btn-gold" id="s-save" disabled>전체 저장</button>
+        <button class="btn btn-gold" id="s-save">전체 저장</button>
       </div>
       <datalist id="manager-list">${managers.map(m=>`<option value="${escapeHtml(m)}">`).join('')}</datalist>
       <div style="overflow-x:auto;">
@@ -1455,7 +1455,6 @@ function renderSettingsTab(){
 
   function markDirty(){
     SETTINGS_DIRTY = true;
-    document.getElementById('s-save').disabled = false;
     const slot = document.getElementById('settings-dirty-slot');
     slot.innerHTML = `<div class="dirty-banner"><span>저장하지 않은 변경사항이 있습니다.</span></div>`;
   }
