@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700;900&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --paper:#EEF1F4;
@@ -512,6 +511,12 @@ function makeSheetsStorageShim(baseUrl){
       const data = await getReq({action:'list', prefix: prefix||''});
       if(data.error) throw new Error(data.error);
       return {keys: data.keys||[], prefix, shared:true};
+    },
+    // 여러 저장 작업을 한 번의 요청으로 처리 (예: 평가 이력 추가 + 요약 갱신을 동시에) — 왕복 횟수를 줄여 저장 속도를 개선
+    async batch(ops){
+      const data = await postReq({action:'batch', ops});
+      if(data.error) throw new Error(data.error);
+      return data.results;
     }
   };
 }
@@ -1264,14 +1269,27 @@ async function submitEval(){
     passCount: pass, failCount: fail, naCount: na,
   };
 
-  const ok = await pushHistory(EVAL_DRAFT.branch, evalObj);
+  // 요약(SUMMARY)을 먼저 갱신해두고, 이력 추가와 함께 한 번에 저장(구글 시트 백엔드는 batch로 왕복 1회에 처리)
   if(!SUMMARY[EVAL_DRAFT.branch]) SUMMARY[EVAL_DRAFT.branch] = {manager:null, director:null};
   const prevCount = (SUMMARY[EVAL_DRAFT.branch][EVAL_DRAFT.role] && SUMMARY[EVAL_DRAFT.branch][EVAL_DRAFT.role].count) || 0;
   SUMMARY[EVAL_DRAFT.branch][EVAL_DRAFT.role] = {
     date: EVAL_DRAFT.date, evaluator: EVAL_DRAFT.evaluator, type: EVAL_DRAFT.type,
     score: score, count: prevCount+1, failedLabels: failedLabels,
   };
-  await saveSummary();
+
+  let ok;
+  if(STORAGE_MODE==='sheets'){
+    try{
+      await STORAGE.batch([
+        {op:'append', key:'eval:'+EVAL_DRAFT.branch, item: JSON.stringify(evalObj)},
+        {op:'set', key:'summary:latest', value: JSON.stringify(SUMMARY)},
+      ]);
+      ok = true;
+    }catch(e){ ok = false; }
+  }else{
+    ok = await pushHistory(EVAL_DRAFT.branch, evalObj);
+    await saveSummary();
+  }
 
   if(ok){
     toast(EVAL_DRAFT.branch+' · '+ROLE_INFO[EVAL_DRAFT.role].label+'가 저장되었습니다');
@@ -1290,6 +1308,21 @@ async function submitEval(){
    '공간 인력' 탭의 지점명/담당자/공간 여력 구분/인력 여력 구분 열을 읽어
    공간O+인력O→유형1, 공간X+인력O→유형2, 공간O+인력X→유형3, 공간X+인력X→유형4 로 매핑
 ===================================================================== */
+// SheetJS(xlsx) 라이브러리는 엑셀 업로드를 실제로 쓸 때만 불러옴 — 대부분의 사용자는 이 기능을 안 쓰므로
+// 모든 페이지 로딩마다 미리 내려받지 않도록 하여 초기 로딩 속도를 개선
+let XLSX_LOAD_PROMISE = null;
+function ensureXLSXLoaded(){
+  if(typeof XLSX !== 'undefined') return Promise.resolve();
+  if(XLSX_LOAD_PROMISE) return XLSX_LOAD_PROMISE;
+  XLSX_LOAD_PROMISE = new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = ()=>resolve();
+    s.onerror = ()=>{ XLSX_LOAD_PROMISE = null; reject(new Error('엑셀 라이브러리를 불러오지 못했습니다')); };
+    document.head.appendChild(s);
+  });
+  return XLSX_LOAD_PROMISE;
+}
 async function applyExcelToBranches(file){
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, {type:'array'});
@@ -1418,8 +1451,10 @@ function renderSettingsTab(){
     const file = e.target.files[0];
     if(!file) return;
     const statusEl = document.getElementById('excel-upload-status');
-    statusEl.textContent = '엑셀을 읽는 중…'; statusEl.style.color = 'var(--ink-faint)';
+    statusEl.textContent = '엑셀 라이브러리를 불러오는 중…'; statusEl.style.color = 'var(--ink-faint)';
     try{
+      await ensureXLSXLoaded();
+      statusEl.textContent = '엑셀을 읽는 중…';
       const result = await applyExcelToBranches(file);
       statusEl.style.color = 'var(--jade)';
       statusEl.textContent = `총 ${result.total}개 행 중 ${result.matched}개 지점 반영 완료 (담당자 변경 ${result.managerChanged}건, 유형 변경 ${result.typeChanged}건)`
