@@ -1321,6 +1321,7 @@ async function submitEval(){
   };
 
   let ok;
+  let lastErr = null;
   if(STORAGE_MODE==='sheets'){
     try{
       await STORAGE.batch([
@@ -1328,7 +1329,15 @@ async function submitEval(){
         {op:'set', key:'summary:latest', value: JSON.stringify(SUMMARY)},
       ]);
       ok = true;
-    }catch(e){ ok = false; }
+    }catch(e){
+      lastErr = e;
+      console.warn('일괄 저장(batch) 실패, 이전 방식으로 재시도합니다:', e.message);
+      // 연결된 구글 시트가 아직 최신 코드로 배포되지 않은 경우를 대비한 대체 경로 (batch 없이도 저장은 되도록)
+      try{
+        ok = await pushHistory(EVAL_DRAFT.branch, evalObj);
+        if(ok) await saveSummary();
+      }catch(e2){ lastErr = e2; ok = false; }
+    }
   }else{
     ok = await pushHistory(EVAL_DRAFT.branch, evalObj);
     await saveSummary();
@@ -1337,7 +1346,7 @@ async function submitEval(){
   if(ok){
     toast(EVAL_DRAFT.branch+' · '+ROLE_INFO[EVAL_DRAFT.role].label+'가 저장되었습니다');
   }else{
-    toast('저장 중 문제가 발생했습니다. 다시 시도해 주세요');
+    toast('저장 중 문제가 발생했습니다'+(lastErr?' ('+lastErr.message+')':'')+'. 다시 시도해 주세요');
   }
   EVAL_DRAFT = null;
   renderShell(); CURRENT_TAB='dashboard'; renderShell(); renderCurrentView();
